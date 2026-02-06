@@ -1,2 +1,4 @@
 .env
 .cancer-assessor-env
+output/
+__pycache__/

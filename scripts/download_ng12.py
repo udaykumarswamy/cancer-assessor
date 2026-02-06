@@ -175,7 +175,7 @@ def main():
     if args.output.exists() and not args.force:
         logger.info(f"PDF already exists at :{args.output}, skipping download")
         if verify_pdf(args.output):
-            print("   Use --force to re-download")
+            logge.info("   Use --force to re-download")
             logger.info("if you want to force download:  Use --force to re-download")
             return 0
         else:

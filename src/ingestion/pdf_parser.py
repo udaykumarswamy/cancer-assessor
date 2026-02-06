@@ -1,44 +1,25 @@
-"""
-PDF Parser Module using Marker
-
-Extracts text content from the NG12 PDF using Marker, a deep learning-based
-PDF extraction library that excels at:
-- Complex table extraction (critical for NG12's threshold tables)
-- Multi-column layout handling
-- Section header detection
-- Preserving document structure as Markdown
-
-Interview Discussion Points:
----------------------------
-1. Why Marker over alternatives?
-   - PyPDF2/PyMuPDF: Rule-based, struggles with complex layouts
-   - pdfplumber: Good for simple tables, not for clinical docs
-   - Marker: Uses deep learning (LayoutLM, etc.) for semantic understanding
-   - Outputs Markdown which is LLM-friendly and preserves structure
-
-2. Key advantages for NG12:
-   - Tables with threshold criteria extracted accurately
-   - Section headers (1.1, 1.2) properly identified
-   - Recommendation boxes preserved as distinct blocks
-   - Multi-column sections handled correctly
-
-3. Trade-offs:
-   - Slower than rule-based parsers (acceptable for one-time ingestion)
-   - Requires more memory (GPU optional but faster)
-   - Markdown output needs post-processing for chunking
-
-4. Metadata preservation:
-   - Marker preserves page boundaries
-   - Section headers become markdown headers (# ## ###)
-   - Tables become markdown tables (easy to detect)
-"""
-
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 import json
+import logging
+import sys
 
+# Import marker components
+from marker.converters.pdf import PdfConverter
+from marker.config.parser import ConfigParser
+from marker.models import create_model_dict
+
+# PyMuPDF for lightweight parsing fallback
+import fitz  
+
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.config.logging_config import get_logger
+
+
+logger = get_logger('marker-pdf-parser',level=logging.DEBUG)
 
 @dataclass
 class ParsedPage:
@@ -151,8 +132,8 @@ class MarkerPDFParser:
     def _load_models(self):
         """Lazy load Marker models."""
         if self._models is None:
-            print("   Loading Marker models (this may take a moment)...")
-            from marker.models import create_model_dict
+            logger.debug("Loading Marker models...(this may take a moment)")
+            
             self._models = create_model_dict()
         return self._models
     
@@ -172,15 +153,13 @@ class MarkerPDFParser:
         """
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
+            logger.error(f"PDF file not found: {pdf_path}")
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
         
-        print(f"📄 Parsing PDF with Marker: {pdf_path.name}")
+        logger.info(f"Parsing PDF: {pdf_path.name}")
         
-        # Import marker components
-        from marker.converters.pdf import PdfConverter
-        from marker.config.parser import ConfigParser
-        
-        # Load models
+      
+        # Load models, its one time will cache for future calls in our local instance
         models = self._load_models()
         
         # Configure converter
@@ -193,7 +172,7 @@ class MarkerPDFParser:
         )
         
         # Convert PDF to markdown
-        print("   Extracting content...")
+        logger.debug("Extracting content from PDF using Marker...")
         rendered = converter(str(pdf_path))
         
         full_markdown = rendered.markdown
@@ -204,8 +183,7 @@ class MarkerPDFParser:
         
         # Extract document title
         title = self._extract_title(full_markdown, metadata)
-        
-        print(f"   ✅ Extracted {len(pages)} pages, {len(full_markdown):,} characters")
+        logger.debug(f" Extracted {len(pages)} pages, {len(full_markdown):,} characters")
         
         return ParsedDocument(
             source=str(pdf_path),
@@ -229,13 +207,14 @@ class MarkerPDFParser:
         Returns:
             ParsedDocument with extracted content
         """
-        import fitz  # PyMuPDF
+       
         
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
+            logger.error(f"PDF file not found: {pdf_path}")
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
         
-        print(f"📄 Parsing PDF (lightweight mode): {pdf_path.name}")
+        logger.debug(f"Using PyMuPDF for lightweight parsing...: {pdf_path.name}")
         
         doc = fitz.open(str(pdf_path))
         pages = []
@@ -272,7 +251,7 @@ class MarkerPDFParser:
         # Extract title from first page
         title = self._extract_title_from_text(all_text[0] if all_text else "")
         
-        print(f"   ✅ Extracted {len(pages)} pages (lightweight)")
+        logger.debug(f" Extracted {len(pages)} pages, {len(all_text):,} characters")
         
         return ParsedDocument(
             source=str(pdf_path),
@@ -342,7 +321,7 @@ class MarkerPDFParser:
         """Create a ParsedPage with detected metadata."""
         sections = self._extract_sections(text)
         has_tables = bool(self.TABLE_PATTERN.search(text))
-        content_type = self._classify_page(text, page_num, 50)  # Assume ~50 pages
+        content_type = self._classify_page(text, page_num, 50)  
         
         return ParsedPage(
             page_number=page_num,
@@ -361,7 +340,7 @@ class MarkerPDFParser:
             level, number, title = match.groups()
             sections.append(f"{number} {title.strip()}")
         
-        # Also try raw section patterns
+        # also try raw section patterns
         if not sections:
             for match in self.RAW_SECTION_PATTERN.finditer(text):
                 number, title = match.groups()
@@ -475,11 +454,7 @@ def parse_pdf(pdf_path: Path | str, lightweight: bool = False) -> ParsedDocument
     Returns:
         ParsedDocument with extracted content
         
-    Example:
-        doc = parse_pdf("ng12.pdf")
-        print(doc.title)
-        for page in doc.get_content_pages():
-            print(f"Page {page.page_number}: {page.sections}")
+
     """
     parser = MarkerPDFParser()
     if lightweight:
