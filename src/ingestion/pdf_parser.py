@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config.logging_config import get_logger
 
 
-logger = get_logger('marker-pdf-parser',level=logging.DEBUG)
+logger = get_logger('marker-pdf-parser', level="DEBUG")
 
 @dataclass
 class ParsedPage:

@@ -9,7 +9,6 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings,SettingsConfigDict
 from typing import List, Optional
-import logging
 
 class Settings(BaseSettings):
     """
@@ -82,7 +81,7 @@ class Settings(BaseSettings):
         
     # LLM model for agents
     LLM_MODEL: str = Field(
-            default="gemini-1.5-pro-002",
+            default="gemini-1.5-pro",
             description="Gemini model for reasoning"
         )
         

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config.settings import settings
 from src.config.logging_config import get_logger
 
-logger = get_logger('export_markdown', level=logging.DEBUG)
+logger = get_logger('export_markdown', level="DEBUG")
 
 def main():
     # Load cached document

@@ -2,3 +2,6 @@
 .cancer-assessor-env
 output/
 __pycache__/
+google-cloud-sdk/
+vectorstore/
+frontend/node_modules/
