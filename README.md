@@ -27,6 +27,7 @@ A Clinical Decision Support System that combines structured patient data with NI
 10. [Project Structure](#project-structure)
 11. [Setup Guide](#setup-guide)
 12. [Usage Examples](#usage-examples)
+13. [UI images](#ui-images)
 
 ---
 
@@ -70,12 +71,12 @@ pip install -r requirements.txt
 # edit .env file
 
 # Start API with mock mode
-USE_MOCK=true uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+USE_MOCK=true uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 # Start API with VertexAI Mode
-uvicorn src.main:app --host 0.0.0.0 --port 8000
+uvicorn src.main:app --host 127.0.0.1 --port 8000
 
-# Access at http://localhost:8000/docs (backend)
+# Access at http://127.0.0.1:8000/docs (backend)
 
 # In another terminal, start frontend
 cd frontend && npm install && npm run dev
@@ -585,6 +586,23 @@ GET /system
 ├─ Response: Health check, vector store stats, retriever config
 └─ Use:      Monitoring and diagnostics
 ```
+
+---
+
+## UI Images
+
+### landing page:
+![image](images/UI-part-1.png)
+
+### assessment page:
+![image](images/Ui-image-1.png)
+
+### chat page:
+![image](images/chat-image.png)
+
+### search page:
+![image](images/ui-search.png)
+
 
 ---
 
