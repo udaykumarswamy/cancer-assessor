@@ -39,17 +39,25 @@ A Clinical Decision Support System that combines structured patient data with NI
 git clone <your-repo>
 cd cancer-assessor
 
+# edit .env files
+
 # Build image
 docker-compose build
 
 # Run with mock mode (no GCP required)
 USE_MOCK=true docker-compose up
 
+# For run with VertexAI 
+docker-compose up
+
 # API: http://localhost:8000/docs
 # Frontend: http://localhost:3000
+
+refer : SETUP_GUIDE.MD for more details
+
 ```
 
-### Option B: Local Python
+### Option B: Local Python (github codespace recommended)
 
 ```bash
 # Create virtual environment
@@ -59,13 +67,23 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
+# edit .env file
+
 # Start API with mock mode
 USE_MOCK=true uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+
+# Start API with VertexAI Mode
+uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+# Access at http://localhost:8000/docs (backend)
 
 # In another terminal, start frontend
 cd frontend && npm install && npm run dev
 
-# Access at http://localhost:3000
+# Access at http://localhost:3000(frontend)
+
+refer : SETUP_GUIDE.MD for more details
+
 ```
 
 ---
@@ -90,26 +108,26 @@ cd frontend && npm install && npm run dev
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
 │             AGENT ORCHESTRATION LAYER (ReAct)                   │
-│  ┌──────────────────────┐      ┌──────────────────────────┐    │
-│  │  Clinical Agent      │      │  Chat Agent              │    │
-│  │  (ReAct: Thought →   │      │  (Context Question       │    │
-│  │   Action → Observe)  │      │   Detector + RAG)        │    │
-│  └──────────┬───────────┘      └──────────┬───────────────┘    │
+│  ┌──────────────────────┐      ┌──────────────────────────┐     │
+│  │  Clinical Agent      │      │  Chat Agent              │     │
+│  │  (ReAct: Thought →   │      │  (Context Question       │     │
+│  │   Action → Observe)  │      │   Detector + RAG)        │     │
+│  └──────────┬───────────┘      └──────────┬───────────────┘     │
 └─────────────┼────────────────────────────┼──────────────────────┘
               │                            │
               └──────────┬─────────────────┘
                          ▼
 ┌────────────────────────────────────────────────────────────────┐
-│                  7 CLINICAL TOOLS                               │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐  │
-│  │🔎 search_       │ │🚩 check_        │ │📊 calculate_    │  │
-│  │  guidelines     │ │  red_flags      │ │  risk           │  │
-│  │  (RAG)          │ │  (RAG+urgency)  │ │  (rules)        │  │
-│  ├─────────────────┤ ├─────────────────┤ ├─────────────────┤  │
-│  │🏥 get_referral_ │ │💊 extract_      │ │📋 lookup_cancer_│  │
-│  │  pathway        │ │  symptoms       │ │  criteria       │  │
-│  │  (RAG+filter)   │ │  (LLM)         │ │  (RAG+filter)   │  │
-│  ├─────────────────┤ └─────────────────┘ └─────────────────┘  │
+│                  7 CLINICAL TOOLS                              │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐   │
+│  │🔎 search_       │ │🚩 check_        │ │📊 calculate_    │   │
+│  │  guidelines     │ │  red_flags      │ │  risk           │   │
+│  │  (RAG)          │ │  (RAG+urgency)  │ │  (rules)        │   │
+│  ├─────────────────┤ ├─────────────────┤ ├─────────────────┤   │
+│  │🏥 get_referral_ │ │💊 extract_      │ │📋 lookup_cancer_│   │
+│  │  pathway        │ │  symptoms       │ │  criteria       │   │
+│  │  (RAG+filter)   │ │  (LLM)         │ │  (RAG+filter)    │   │
+│  ├─────────────────┤ └─────────────────┘ └─────────────────┘   │
 │  │📄 get_section   │                                           │
 │  │  (RAG+section)  │                                           │
 │  └─────────────────┘                                           │
@@ -138,8 +156,8 @@ cd frontend && npm install && npm run dev
        ▼
 ┌─────────────────────────────────────┐
 │     NG12 Ingested Knowledge         │
-│     • 50+ pages indexed             │
-│     • ~550 semantic chunks          │
+│     • 90+ pages indexed             │
+│     • ~161 semantic chunks          │
 │     • Rich metadata per chunk:      │
 │       cancer_types, symptoms,       │
 │       urgency, section, type        │
@@ -147,12 +165,12 @@ cd frontend && npm install && npm run dev
 
 ┌─────────────────────────────────────────────────────────────────┐
 │                     EVALUATION LAYER                            │
-│  ┌──────────────────┐  ┌────────────────┐  ┌───────────────┐  │
-│  │ Retrieval Metrics │  │ Ground Truth   │  │ Real-Data     │  │
-│  │ Recall@K, MRR,   │  │ Builder (auto  │  │ Test Suite    │  │
-│  │ NDCG, MAP,       │  │ from chunk     │  │ (per-cancer   │  │
-│  │ Precision, Hit   │  │ metadata)      │  │  thresholds)  │  │
-│  └──────────────────┘  └────────────────┘  └───────────────┘  │
+│  ┌──────────────────┐  ┌────────────────┐  ┌───────────────┐    │
+│  │ Retrieval Metrics│  │ Ground Truth   │  │ Real-Data     │    │
+│  │ Recall@K, MRR,   │  │ Builder (auto  │  │ Test Suite    │    │
+│  │ NDCG, MAP,       │  │ from chunk     │  │ (per-cancer   │    │
+│  │ Precision, Hit   │  │ metadata)      │  │  thresholds)  │    │
+│  └──────────────────┘  └────────────────┘  └───────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -222,6 +240,8 @@ User Message
 └─────────────────────────────────────┘
 ```
 
+**NOTE:** :  Detailed Architecture is provided in **docs/ARCHITECTURE.md** file, please refer that
+
 ---
 
 ## Technical Stack
@@ -233,7 +253,7 @@ User Message
 | **Embeddings** | Vertex AI text-embedding-004 | 768-dim, metadata-enhanced for clinical accuracy |
 | **Vector DB** | ChromaDB | Native metadata filtering, clinical search methods, easy persistence |
 | **Agent Pattern** | ReAct (custom) | Explicit reasoning traces critical for clinical auditability |
-| **PDF Parser** | PyMuPDF (fitz) | Superior table extraction, page metadata |
+| **PDF Parser** | Marker + PyMuPDF (fitz)(for light weight) | Superior table extraction, page metadata |
 | **Validation** | Pydantic v2 | Type safety, auto-schema, OpenAPI integration |
 | **Frontend** | React + Vanilla JS | Minimal, focus on backend |
 | **Container** | Docker | Reproducible environments |
@@ -380,16 +400,9 @@ Tests fail if retrieval quality drops below these:
 
 ```bash
 # Standalone (logs to console + file)
-python tests/evaluation/test_retrieval_real.py
+python tests/evaluation/test_retrieval.py
 
-# With pytest
-pytest tests/evaluation/test_retrieval_real.py -v -s
-
-# Specific cancer type
-pytest tests/evaluation/test_retrieval_real.py -v -s -k "colorectal"
-
-# Metric unit tests only
-pytest tests/evaluation/test_retrieval_metrics.py -v
+**Note:** I need to fine tune this bit more, 
 ```
 
 ---
@@ -656,9 +669,7 @@ CANCER-ASSESSOR/
 │   ├── test_retrieval.py              # ClinicalRetriever unit tests
 │   ├── test_risk_assessment.py        # Agent integration tests
 │   ├── test_chat.py                   # Chat flow tests
-│   └── evaluation/
-│       ├── test_retrieval_metrics.py  # Metric function unit tests (26 tests)
-│       └── test_retrieval_real.py     # Real-data eval against NG12 chunks
+│   ├── test_retrieval.py              # Metric function unit tests (26 tests)
 │
 └── vectorstore/                       # ChromaDB persistent storage (gitignored)
 ```
