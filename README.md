@@ -637,7 +637,7 @@ GET /system
 ![image](images/Ui-image-1.png)
 
 ### chat page:
-![image](images/chat-image.png)
+![image](images/chat-new.png)
 
 ### search page:
 ![image](images/ui-search.png)
