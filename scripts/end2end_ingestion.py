@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 """
-Complete End-to-End Pipeline Test
+Complete End-to-End Ingestion Pipeline 
 
-Uses cached parsed PDF to test the full pipeline:
-1. Load cached parsed document
-2. Chunk the content semantically
-3. Generate embeddings with Vertex AI
-4. Store in ChromaDB
-5. Test retrieval with various clinical filters
+Full pipeline from PDF download to retrieval testing:
+1. Download NG12 PDF (if needed)
+2. Parse and cache the document
+3. Chunk the content semantically
+4. Generate embeddings with Vertex AI
+5. Store in ChromaDB
+6. Test retrieval with various clinical filters
 
 Usage:
-    # Full pipeline test
-    python scripts/test_e2e_pipeline.py
+    # Full pipeline (downloads PDF if needed)
+    python scripts/end2end_ingestion.py --mock
+    
+    # Skip PDF download (use existing)
+    python scripts/end2end_ingestion.py --mock --skip-download
+    
+    # Force re-download PDF
+    python scripts/end2end_ingestion.py --mock --force-download
     
     # Skip storage (just test embedding)
-    python scripts/test_e2e_pipeline.py --no-store
+    python scripts/end2end_ingestion.py --mock --no-store
     
-    # Use mock embeddings (no Vertex AI needed)
-    python scripts/test_e2e_pipeline.py --mock
-    
-    # Clear and re-ingest
-    python scripts/test_e2e_pipeline.py --force
+    # Clear and re-ingest everything
+    python scripts/end2end_ingestion.py --mock --force
 """
 
 import sys
@@ -29,6 +33,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 import warnings
+import hashlib
 
 warnings.filterwarnings("ignore")
 
@@ -38,6 +43,108 @@ from src.config.settings import settings
 from src.config.logging_config import get_logger
 
 logger = get_logger('e2e_pipeline', level='DEBUG')
+
+def download_ng12_pdf(force: bool = False, skip: bool = False) -> bool:
+    """
+    Download the NG12 PDF guideline document.
+    
+    This is the first step of the pipeline - downloads the official NICE NG12 PDF
+    if it doesn't already exist, or if force=True.
+    
+    Args:
+        force: Force re-download even if file exists
+        skip: Skip download entirely (assume PDF exists)
+        
+    Returns:
+        True if PDF is available and valid, False otherwise
+    """
+    pdf_path = settings.pdf_path
+    
+    if skip:
+        logger.info("⏭️  Skipping PDF download (--skip-download)")
+        if pdf_path.exists():
+            logger.info(f"   ✅ PDF exists at: {pdf_path}")
+            return True
+        else:
+            logger.error(f"   ❌ PDF not found at: {pdf_path}")
+            logger.info("   Run without --skip-download to download it")
+            return False
+    
+    # Check if already downloaded
+    if pdf_path.exists() and not force:
+        logger.info(f"📄 PDF already downloaded at: {pdf_path}")
+        file_size = pdf_path.stat().st_size / (1024 * 1024)  # Convert to MB
+        logger.info(f"   ✅ File size: {file_size:.1f} MB")
+        
+        # Verify it's a valid PDF
+        with open(pdf_path, "rb") as f:
+            magic = f.read(5)
+            if magic == b"%PDF-":
+                logger.info("   ✅ PDF validation passed")
+                return True
+            else:
+                logger.warning("   ⚠️  PDF validation failed, will re-download")
+    
+    # Download the PDF
+    logger.info("\n📥 Downloading NG12 PDF guideline document...")
+    logger.info(f"   URL: {settings.NG12_PDF_URL}")
+    logger.info(f"   Destination: {pdf_path}")
+    
+    try:
+        # Import here to avoid requiring httpx globally
+        import httpx
+        from tenacity import retry, stop_after_attempt, wait_exponential
+        
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            reraise=True
+        )
+        def download_with_retry(url: str, output: Path) -> None:
+            """Download with retry logic."""
+            output.parent.mkdir(parents=True, exist_ok=True)
+            
+            with httpx.stream("GET", url, follow_redirects=True, timeout=60.0) as response:
+                response.raise_for_status()
+                total_size = int(response.headers.get("content-length", 0))
+                downloaded = 0
+                
+                with open(output, "wb") as f:
+                    for chunk in response.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        if total_size > 0:
+                            progress = (downloaded / total_size) * 100
+                            if int(progress) % 10 == 0:  # Log every 10%
+                                logger.info(f"   Download progress: {progress:.1f}%")
+        
+        download_with_retry(settings.NG12_PDF_URL, pdf_path)
+        
+        # Verify download
+        if pdf_path.stat().st_size < 1000:
+            logger.error("   ❌ Downloaded file is too small (corrupted?)")
+            return False
+        
+        with open(pdf_path, "rb") as f:
+            magic = f.read(5)
+            if magic != b"%PDF-":
+                logger.error("   ❌ Downloaded file is not a valid PDF")
+                return False
+        
+        file_size = pdf_path.stat().st_size / (1024 * 1024)
+        logger.info(f"   ✅ Download successful! ({file_size:.1f} MB)")
+        logger.info(f"   📍 Saved to: {pdf_path}")
+        return True
+        
+    except ImportError:
+        logger.error("   ❌ Required libraries not installed")
+        logger.info("   Run: pip install httpx tenacity")
+        return False
+    except Exception as e:
+        logger.error(f"   ❌ Download failed: {e}")
+        logger.info("   This may be a temporary network issue. Try again.")
+        return False
 
 def load_document(use_cache: bool = True, lightweight: bool = False):
     """
@@ -58,7 +165,7 @@ def load_document(use_cache: bool = True, lightweight: bool = False):
 
 def load_cached_document():
     """Load the cached parsed document."""
-    from scripts.parse_and_cache import load_from_cache
+    from parse_and_cache import load_from_cache
     
     logger.info("📄 Loading cached parsed document...")
     logger.info("   (Initializing dependencies - may take 10-30 seconds on first load)")
@@ -347,6 +454,16 @@ def main():
         action="store_true",
         help="Verbose debug logging"
     )
+    parser.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Skip PDF download (assume it already exists)"
+    )
+    parser.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force re-download of NG12 PDF even if it exists"
+    )
     
     args = parser.parse_args()
     
@@ -362,12 +479,29 @@ def main():
     start_time = time.time()
     
     try:
+        # Step 0: Download NG12 PDF (if needed)
+        logger.info(f"\n{'='*70}")
+        logger.info("STEP 0: Download NG12 PDF Guideline")
+        logger.info(f"{'='*70}")
+        
+        if not download_ng12_pdf(force=args.force_download, skip=args.skip_download):
+            logger.error("❌ Failed to download or verify NG12 PDF")
+            return 1
+        
         # Step 1: Load cached document
+        logger.info(f"\n{'='*70}")
+        logger.info("STEP 1: Load and Parse Document")
+        logger.info(f"{'='*70}")
+        
         document = load_cached_document()
         if not document:
             return 1
         
         # Step 2: Chunk document
+        logger.info(f"\n{'='*70}")
+        logger.info("STEP 2: Chunk Document")
+        logger.info(f"{'='*70}")
+        
         chunks = chunk_document(
             document,
             chunk_size=args.chunk_size,
@@ -375,16 +509,31 @@ def main():
         )
         
         # Step 3: Generate embeddings
+        logger.info(f"\n{'='*70}")
+        logger.info("STEP 3: Generate Embeddings")
+        logger.info(f"{'='*70}")
+        
         embedded_chunks, embedder = embed_chunks(chunks, mock=args.mock)
         
         # Step 4: Store (optional)
+        logger.info(f"\n{'='*70}")
+        logger.info("STEP 4: Store in Vector Database")
+        logger.info(f"{'='*70}")
         if not args.no_store:
             store, count = store_chunks(embedded_chunks, force=args.force)
             
             # Step 5: Test retrieval
+            logger.info(f"\n{'='*70}")
+            logger.info("STEP 5: Test Retrieval Patterns")
+            logger.info(f"{'='*70}")
+            
             test_retrieval(store, embedder)
             
             # Step 6: Test clinical filters
+            logger.info(f"\n{'='*70}")
+            logger.info("STEP 6: Test Clinical Metadata Filtering")
+            logger.info(f"{'='*70}")
+            
             test_clinical_filters(store, embedder)
         else:
             logger.info("\n⏭️ Skipped storage (--no-store)")
@@ -392,12 +541,22 @@ def main():
         # Summary
         elapsed = time.time() - start_time
         logger.info("\n" + "=" * 70)
-        logger.info("✅ PIPELINE TEST COMPLETE")
+        logger.info("✅ FULL PIPELINE COMPLETE - ALL STEPS SUCCESSFUL!")
         logger.info("=" * 70)
-        logger.info(f"Duration: {elapsed:.1f}s")
-        logger.info(f"Chunks processed: {len(chunks)}")
+        logger.info(f"\n📊 Pipeline Summary:")
+        logger.info(f"   ✓ Step 0: PDF downloaded/verified")
+        logger.info(f"   ✓ Step 1: Document loaded and parsed")
+        logger.info(f"   ✓ Step 2: Created {len(chunks)} chunks")
+        logger.info(f"   ✓ Step 3: Generated embeddings")
         if not args.no_store:
-            logger.info(f"Chunks stored: {count}")
+            logger.info(f"   ✓ Step 4: Stored {count} chunks in vector database")
+            logger.info(f"   ✓ Step 5: Tested retrieval patterns")
+            logger.info(f"   ✓ Step 6: Tested clinical metadata filtering")
+        else:
+            logger.info(f"   ✓ Step 4-6: Skipped (--no-store)")
+        logger.info(f"\n⏱️  Total Duration: {elapsed:.1f}s")
+        logger.info(f"📁 Vector store ready at: {settings.VECTORSTORE_DIR}")
+        logger.info(f"🚀 System is ready for clinical assessments!\n")
         
         return 0
         
@@ -414,18 +573,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-'''
-# Use cached (fastest - default)
-python scripts/test_e2e_pipeline.py
-
-# Parse fresh PDF with Marker
-python scripts/test_e2e_pipeline.py --parse-pdf
-
-# Parse fresh with lightweight mode
-python scripts/test_e2e_pipeline.py --parse-pdf --lightweight
-
-# Combine options
-python scripts/test_e2e_pipeline.py --parse-pdf --mock --force
-
-'''

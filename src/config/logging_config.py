@@ -3,18 +3,6 @@ Logging Configuration for NG12 Cancer Risk Assessor
 
 Provides structured logging with configurable levels and formats.
 
-Interview Discussion Points:
----------------------------
-1. Why structured logging?
-   - Easier to parse in production (JSON format option)
-   - Consistent format across all modules
-   - Filterable by level, module, timestamp
-
-2. Log levels strategy:
-   - DEBUG: Detailed flow (chunk processing, embedding batches)
-   - INFO: High-level progress (pipeline stages)
-   - WARNING: Recoverable issues (retry, fallback)
-   - ERROR: Failures requiring attention
 """
 
 import logging

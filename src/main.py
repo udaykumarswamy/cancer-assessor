@@ -183,6 +183,7 @@ async def readiness_check():
         }, 503
 
 
+
 @app.get("/version")
 async def get_version():
     """Get API version information."""

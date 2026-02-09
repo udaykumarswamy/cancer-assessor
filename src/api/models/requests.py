@@ -2,19 +2,6 @@
 API Request Models
 
 Pydantic models for API request validation.
-
-Interview Discussion Points:
----------------------------
-1. Why Pydantic?
-   - Automatic validation
-   - Clear documentation via OpenAPI
-   - Type hints for IDE support
-   - Serialization/deserialization built-in
-
-2. Model hierarchy:
-   - Base models for common fields
-   - Request-specific models inherit
-   - Optional fields with defaults
 """
 
 from typing import List, Optional, Dict, Any

@@ -4,25 +4,14 @@ Clinical Agent Tools
 Tool definitions for the ReAct clinical assessment agent.
 Each tool has a clear schema, description, and implementation.
 
-Interview Discussion Points:
----------------------------
-1. Why tool-based architecture?
-   - Modular: Each capability is a separate tool
-   - Auditable: Every action is logged
-   - Extensible: Easy to add new tools
-   - Testable: Tools can be unit tested
-
-2. Tool design principles:
-   - Single responsibility
-   - Clear input/output schemas
-   - Descriptive names and descriptions
-   - Error handling built-in
 """
 
 from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+
+from src.config.prompts import get_tools_symptom_extraction_prompt
 
 
 @dataclass
@@ -397,18 +386,7 @@ Returns the criteria list with age thresholds and symptom combinations.""",
         """Extract symptoms from clinical text using LLM."""
         from src.llm.gemini import ResponseFormat
         
-        prompt = f"""Extract clinical information from this text:
-
-"{clinical_text}"
-
-Return a JSON object with:
-- symptoms: list of symptoms mentioned
-- duration: how long symptoms have been present (if mentioned)
-- severity: severity indicators (mild/moderate/severe)
-- risk_factors: any risk factors mentioned
-- red_flags: any concerning findings
-- age: patient age if mentioned
-- sex: patient sex if mentioned"""
+        prompt = get_tools_symptom_extraction_prompt(clinical_text)
 
         response = self.llm.generate(
             prompt=prompt,

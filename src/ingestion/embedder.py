@@ -5,7 +5,7 @@ Creates embeddings using Google's Vertex AI text-embedding-004 model.
 Handles batching, rate limiting, and error recovery.
 Updated to support rich clinical metadata chunks from NG12 guidelines.
 
-Interview Discussion Points:
+Why this architecture?::
 ---------------------------
 1. Why text-embedding-004?
    - Latest Vertex AI embedding model (as of 2024)
@@ -538,70 +538,6 @@ class VertexAIEmbedder:
             print(f"   ✅ Embedded {len(embedded_list)}/{len(chunks)} chunks")
         
         return embedded_list
-    # def embed_chunks(
-    #     self,
-    #     chunks: list[RichChunk],
-    #     show_progress: bool = True,
-    #     include_metadata: bool = True
-    # ) -> list[EmbeddedChunk]:
-    #     """
-    #     Embed multiple chunks for document indexing.
-        
-    #     Uses RETRIEVAL_DOCUMENT task type for optimal indexing embeddings.
-    #     Processes in batches to handle rate limits.
-        
-    #     Args:
-    #         chunks: List of RichChunk objects to embed
-    #         show_progress: Whether to print progress
-    #         include_metadata: Whether to include clinical metadata in embedding
-            
-    #     Returns:
-    #         List of EmbeddedChunk objects
-    #     """
-    #     if not chunks:
-    #         return []
-        
-    #     if show_progress:
-    #         meta_str = " (with metadata)" if include_metadata else ""
-    #         print(f"📊 Embedding {len(chunks)} chunks{meta_str}...")
-        
-    #     embedded_chunks = []
-    #     total_batches = (len(chunks) + self.MAX_BATCH_SIZE - 1) // self.MAX_BATCH_SIZE
-        
-    #     for batch_idx in range(0, len(chunks), self.MAX_BATCH_SIZE):
-    #         batch = chunks[batch_idx:batch_idx + self.MAX_BATCH_SIZE]
-    #         batch_num = batch_idx // self.MAX_BATCH_SIZE + 1
-            
-    #         if show_progress:
-    #             print(f"   Batch {batch_num}/{total_batches} ({len(batch)} chunks)...")
-            
-    #         # Extract texts (with or without metadata)
-    #         texts = [chunk.get_embedding_text(include_metadata) for chunk in batch]
-            
-    #         try:
-    #             # Get embeddings with retry
-    #             embeddings = self._embed_batch_with_retry(texts, self.TASK_DOCUMENT)
-                
-    #             # Pair chunks with embeddings
-    #             for chunk, embedding in zip(batch, embeddings):
-    #                 embedded_chunks.append(EmbeddedChunk(
-    #                     chunk=chunk,
-    #                     embedding=embedding,
-    #                     metadata_enhanced=include_metadata
-    #                 ))
-                
-    #         except Exception as e:
-    #             print(f"   ⚠️ Error in batch {batch_num}: {e}")
-    #             continue
-            
-    #         # Small delay between batches to avoid rate limits
-    #         if batch_idx + self.MAX_BATCH_SIZE < len(chunks):
-    #             time.sleep(0.5)
-        
-    #     if show_progress:
-    #         print(f"   ✅ Embedded {len(embedded_chunks)}/{len(chunks)} chunks")
-        
-    #     return embedded_chunks
     
     def embed_query(self, query: str) -> list[float]:
         """

@@ -1,29 +1,4 @@
 #!/usr/bin/env python3
-"""
-NG12 PDF Download Script
-
-Downloads the official NICE NG12 Cancer Guidelines PDF.
-
-Usage:
-    python scripts/download_ng12.py
-    
-    # Or with custom path
-    python scripts/download_ng12.py --output /custom/path/ng12.pdf
-
-Interview Discussion Points:
----------------------------
-1. Why download at build time vs. runtime?
-   - PDF is static (versioned guidelines)
-   - Avoids network dependency during inference
-   - Can verify integrity (checksum) at build
-   - Docker layer caching benefits
-
-2. Error handling strategy:
-   - Retry with exponential backoff
-   - Verify file integrity after download
-   - Graceful failure with clear messages
-"""
-
 import argparse
 import hashlib
 import sys
@@ -175,7 +150,7 @@ def main():
     if args.output.exists() and not args.force:
         logger.info(f"PDF already exists at :{args.output}, skipping download")
         if verify_pdf(args.output):
-            logge.info("   Use --force to re-download")
+            logger.info("   Use --force to re-download")
             logger.info("if you want to force download:  Use --force to re-download")
             return 0
         else:

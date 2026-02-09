@@ -7,7 +7,7 @@ Intelligent retrieval from NG12 guidelines with:
 - Result reranking for clinical relevance
 - Context window management
 
-Interview Discussion Points:
+Why this architecture?:
 ---------------------------
 1. Query expansion strategy:
    - Medical synonyms (haemoptysis → coughing blood)
@@ -23,6 +23,7 @@ Interview Discussion Points:
    - Cross-encoder for semantic similarity
    - Clinical relevance boosting
    - Recency/version weighting
+   - Re-ordering similarity scored chunks, to avoid context rotting(i didnt get time to implement this, but it would be a good addition)
 """
 
 from typing import List, Dict, Any, Optional, Tuple

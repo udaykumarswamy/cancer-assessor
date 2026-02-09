@@ -4,28 +4,6 @@ ReAct Agent Implementation
 Implements the ReAct (Reasoning + Acting) pattern for clinical assessment.
 The agent iteratively reasons about the problem, takes actions via tools,
 and observes results until reaching a conclusion.
-
-Interview Discussion Points:
----------------------------
-1. Why ReAct pattern?
-   - Transparent reasoning: Every step is documented
-   - Auditable: Critical for clinical applications
-   - Interruptible: Can pause and resume
-   - Debuggable: Easy to see where things went wrong
-
-2. Agent loop:
-   Thought → Action → Observation → Thought → ... → Final Answer
-
-3. Clinical advantages:
-   - Shows reasoning chain for medical decisions
-   - Cites specific guidelines
-   - Can be reviewed by clinicians
-   - Provides evidence trail
-
-4. Comparison with other patterns:
-   - ReAct vs Chain-of-Thought: ReAct adds tool use
-   - ReAct vs Plan-and-Execute: More flexible, handles uncertainty
-   - ReAct vs Function Calling: More structured reasoning
 """
 
 from typing import List, Dict, Any, Optional, Tuple
@@ -37,6 +15,7 @@ import re
 
 from src.agents.tools import ClinicalTools, Tool, ToolResult
 from src.config.logging_config import get_logger
+from src.config.prompts import get_react_system_prompt, get_react_prompt
 
 logger = get_logger("react_agent")
 
@@ -137,47 +116,8 @@ class ReActAgent:
         print(result.trace.get_reasoning_chain())
     """
     
-    SYSTEM_PROMPT = """You are a clinical decision support agent helping healthcare professionals 
-assess patients for potential cancer referral according to NICE NG12 guidelines.
-
-You have access to tools to search guidelines, check symptoms, and calculate risk.
-You must use these tools to gather evidence before making recommendations.
-
-IMPORTANT RULES:
-1. Always search guidelines before making clinical recommendations
-2. Check for red flags when symptoms are concerning  
-3. Calculate risk level based on NG12 criteria
-4. Cite specific guideline sections in your final answer
-5. Be clear about urgency levels (2-week pathway vs routine)
-6. This is decision SUPPORT - final decisions are made by clinicians
-
-You operate in a loop of: Thought → Action → Observation
-
-Format your responses EXACTLY as:
-
-Thought: [Your reasoning about what to do next]
-Action: [tool_name]
-Action Input: {"param1": "value1", "param2": "value2"}
-
-OR when you have enough information:
-
-Thought: [Your final reasoning]
-Final Answer: [Your complete clinical assessment with recommendations and citations]"""
-
-    REACT_PROMPT = """Based on the task and previous steps, continue your reasoning.
-
-Task: {task}
-
-Available Tools:
-{tools_description}
-
-Previous Steps:
-{previous_steps}
-
-Continue with the next thought. Remember to use tools to gather evidence.
-If you have enough information, provide your Final Answer.
-
-Your response:"""
+    # Prompts loaded dynamically from prompts.md
+    # See get_react_system_prompt() and get_react_prompt() for loading
 
     def __init__(
         self,
@@ -232,7 +172,7 @@ Your response:"""
                 logger.debug("Building prompt with reasoning history...")
                 previous_steps = trace.get_reasoning_chain() if trace.steps else "None yet."
                 
-                prompt = self.REACT_PROMPT.format(
+                prompt = get_react_prompt(
                     task=task,
                     tools_description=tools_desc,
                     previous_steps=previous_steps
@@ -244,7 +184,7 @@ Your response:"""
                 trace.state = AgentState.THINKING
                 response = self.llm.generate(
                     prompt=prompt,
-                    system_instruction=self.SYSTEM_PROMPT,
+                    system_instruction=get_react_system_prompt(),
                     temperature=0.1,
                     max_tokens=2048
                 )
@@ -488,7 +428,7 @@ class StreamingReActAgent(ReActAgent):
             # Build prompt
             logger.debug("Building prompt with history...")
             previous_steps = trace.get_reasoning_chain() if trace.steps else "None yet."
-            prompt = self.REACT_PROMPT.format(
+            prompt = get_react_prompt(
                 task=task,
                 tools_description=tools_desc,
                 previous_steps=previous_steps
@@ -502,7 +442,7 @@ class StreamingReActAgent(ReActAgent):
             logger.debug(f"Calling LLM for step {step_num}...")
             response = self.llm.generate(
                 prompt=prompt,
-                system_instruction=self.SYSTEM_PROMPT,
+                system_instruction=get_react_system_prompt(),
                 temperature=0.1
             )
             logger.debug("LLM response received")

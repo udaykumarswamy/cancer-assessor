@@ -5,7 +5,7 @@ Manages persistent storage of embedded chunks in ChromaDB.
 Provides retrieval with clinical metadata filtering for citations.
 Updated to support rich clinical metadata from NG12 guidelines.
 
-Interview Discussion Points:
+Why this architecture?:
 ---------------------------
 1. Why ChromaDB?
    - Native metadata filtering (essential for clinical filtering)
@@ -282,14 +282,26 @@ class VectorStore:
         # Ensure directory exists
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize ChromaDB client
-        self._client = chromadb.PersistentClient(
-            path=str(self.persist_dir),
-            settings=ChromaSettings(
+        # # Initialize ChromaDB client
+        # self._client = chromadb.PersistentClient(
+        #     path=str(self.persist_dir),
+        #     settings=ChromaSettings(
+        #         anonymized_telemetry=False,
+        #         allow_reset=True
+        #     )
+        # )
+                # Initialize ChromaDB client with persistent storage
+        # Using Client() with ChromaSettings is more efficient and stores data
+        # directly in persist_dir without creating UUID subdirectories
+        self._client = chromadb.Client(
+            ChromaSettings(
+                is_persistent=True,
+                persist_directory=str(self.persist_dir),
                 anonymized_telemetry=False,
                 allow_reset=True
             )
         )
+        
         
         self._collection = None
     

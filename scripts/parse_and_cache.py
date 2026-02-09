@@ -25,9 +25,6 @@ from pathlib import Path
 import logging
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# LAZY: Don't import settings at module level
-# from src.config.settings import settings
-# from src.config.logging_config import get_logger
 
 # Use a simple logger instead
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(name)s | %(message)s')

@@ -1,3 +1,19 @@
+
+"""
+
+PDF Parser for NICE NG12 Guidelines
+
+This module provides robust PDF parsing capabilities using the Marker library,which leverages deep learning models for understanding complex document layouts. 
+It is designed to extract structured content from the NG12 guidelines, including section headers, recommendations, and tables, while preserving the original formatting as much as possible.
+
+Why this architecture?:
+- Marker is state-of-the-art for PDF parsing, especially for complex documents with tables and multi-column layouts like NG12.
+- uses deep learning to understand document structure, which is crucial for accurate extraction of clinical guidelines.
+- Accurate extraction of text, tables, and section hierarchy
+- Classification of content types (TOC, front matter, main content, appendix)
+- Fallback to lightweight parsing using PyMuPDF for environments 
+without full Marker dependencies"""
+
 import re
 from dataclasses import dataclass, field
 from pathlib import Path

@@ -4,10 +4,10 @@ Gemini LLM Module
 Wrapper for Google's Gemini 1.5 Pro model via Vertex AI.
 Provides structured prompting, response parsing, and error handling.
 
-Interview Discussion Points:
+Why this architecture?:
 ---------------------------
-1. Why Gemini 1.5 Pro?
-   - Long context window (1M tokens) for complex clinical cases
+1. Why Gemini 2.5 Pro?
+   - Long context window (1M+ tokens) for complex clinical cases
    - Strong reasoning capabilities for medical guidelines
    - Native JSON mode for structured outputs
    - Cost-effective for production use

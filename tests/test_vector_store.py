@@ -203,7 +203,7 @@ class TestRetrievedChunk:
         assert retrieved.clinical.is_urgent is True
         assert retrieved.clinical.cancer_types == "lymphoma"
         
-        print("✅ test_from_chroma_result passed")
+        print(" test_from_chroma_result passed")
     
     def test_get_citation_single_page(self):
         """Test citation generation for single page."""
@@ -222,7 +222,7 @@ class TestRetrievedChunk:
         assert "NG12" in citation
         assert "1.4" in citation  # Should extract correct section number
         
-        print(f"✅ test_get_citation_single_page passed: {citation}")
+        print(f" test_get_citation_single_page passed: {citation}")
     
     def test_get_citation_multi_page(self):
         """Test citation generation for multi-page chunk."""
@@ -240,7 +240,7 @@ class TestRetrievedChunk:
         assert "pp.12-14" in citation
         assert "1.3.1" in citation  # Most specific section
         
-        print(f"✅ test_get_citation_multi_page passed: {citation}")
+        print(f" test_get_citation_multi_page passed: {citation}")
     
     def test_get_urgency_display(self):
         """Test urgency display formatting."""
@@ -259,7 +259,7 @@ class TestRetrievedChunk:
         assert "🔴" in display
         assert "2-week" in display
         
-        print(f"✅ test_get_urgency_display passed: {display}")
+        print(f"test_get_urgency_display passed: {display}")
     
     def test_to_dict(self):
         """Test serialization to dict."""
@@ -288,7 +288,7 @@ class TestRetrievedChunk:
         assert "citation" in data
         assert "urgency_display" in data
         
-        print("✅ test_to_dict passed")
+        print("test_to_dict passed")
 
 
 class TestMockVectorStore:
@@ -304,7 +304,7 @@ class TestMockVectorStore:
         assert count == len(SAMPLE_CHUNKS)
         assert store.get_stats()["total_chunks"] == len(SAMPLE_CHUNKS)
         
-        print("✅ test_add_chunks passed")
+        print(" test_add_chunks passed")
     
     def test_search_basic(self):
         """Test basic semantic search."""
@@ -325,7 +325,7 @@ class TestMockVectorStore:
         scores = [r.score for r in results]
         assert scores == sorted(scores, reverse=True)
         
-        print("✅ test_search_basic passed")
+        print("test_search_basic passed")
         print(f"   Top result: {results[0].chunk_id} ({results[0].score:.4f})")
     
     def test_search_with_min_score(self):
@@ -344,7 +344,7 @@ class TestMockVectorStore:
         assert len(results_filtered) <= len(results_all)
         assert all(r.score >= 0.5 for r in results_filtered)
         
-        print("✅ test_search_with_min_score passed")
+        print("test_search_with_min_score passed")
     
     def test_search_urgent_only(self):
         """Test filtering for urgent chunks."""
@@ -363,7 +363,7 @@ class TestMockVectorStore:
         expected_urgent = sum(1 for c in SAMPLE_CHUNKS if c.get("is_urgent"))
         assert len(results) == expected_urgent
         
-        print(f"✅ test_search_urgent_only passed ({len(results)} urgent chunks)")
+        print(f" test_search_urgent_only passed ({len(results)} urgent chunks)")
     
     def test_search_by_cancer_type(self):
         """Test filtering by cancer type."""
@@ -380,7 +380,7 @@ class TestMockVectorStore:
         assert len(results) >= 1
         assert all("lung" in r.clinical.cancer_types for r in results)
         
-        print(f"✅ test_search_by_cancer_type passed ({len(results)} lung chunks)")
+        print(f" test_search_by_cancer_type passed ({len(results)} lung chunks)")
     
     def test_search_recommendations(self):
         """Test filtering for recommendation chunks."""
@@ -395,7 +395,7 @@ class TestMockVectorStore:
         # All results should have recommendations
         assert all(r.clinical.has_recommendation for r in results)
         
-        print(f"✅ test_search_recommendations passed ({len(results)} recommendations)")
+        print(f" test_search_recommendations passed ({len(results)} recommendations)")
     
     def test_clear(self):
         """Test clearing the store."""
@@ -409,7 +409,7 @@ class TestMockVectorStore:
         
         assert store.get_stats()["total_chunks"] == 0
         
-        print("✅ test_clear passed")
+        print(" test_clear passed")
 
 
 class TestVectorStoreWithChroma:
@@ -418,12 +418,12 @@ class TestVectorStoreWithChroma:
     def test_chromadb_available(self):
         """Check if ChromaDB is available."""
         print(f"   ChromaDB available: {CHROMADB_AVAILABLE}")
-        print("✅ test_chromadb_available passed")
+        print("test_chromadb_available passed")
     
     def test_add_and_search(self):
         """Test adding chunks and searching with ChromaDB."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_add_and_search skipped (ChromaDB not installed)")
+            print("test_add_and_search skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -444,12 +444,12 @@ class TestVectorStoreWithChroma:
             assert len(results) == 3
             assert all(isinstance(r, RetrievedChunk) for r in results)
             
-            print("✅ test_add_and_search passed")
+            print(" test_add_and_search passed")
     
     def test_clinical_filters(self):
         """Test clinical metadata filters with ChromaDB."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_clinical_filters skipped (ChromaDB not installed)")
+            print("test_clinical_filters skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -476,12 +476,12 @@ class TestVectorStoreWithChroma:
             fit_results = store.search_by_investigation(query_emb, "fit", top_k=10)
             assert all("fit" in r.clinical.investigations for r in fit_results)
             
-            print("✅ test_clinical_filters passed")
+            print(" test_clinical_filters passed")
     
     def test_combined_filters(self):
         """Test combining multiple clinical filters."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_combined_filters skipped (ChromaDB not installed)")
+            print(" test_combined_filters skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -508,12 +508,12 @@ class TestVectorStoreWithChroma:
                 assert r.clinical.is_urgent
                 assert r.clinical.has_recommendation
             
-            print(f"✅ test_combined_filters passed ({len(results)} results)")
+            print(f" test_combined_filters passed ({len(results)} results)")
     
     def test_get_by_page(self):
         """Test retrieving chunks by page number."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_get_by_page skipped (ChromaDB not installed)")
+            print("test_get_by_page skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -532,12 +532,12 @@ class TestVectorStoreWithChroma:
             assert len(results) >= 1
             assert any(r.page_start <= 22 <= r.page_end for r in results)
             
-            print(f"✅ test_get_by_page passed ({len(results)} chunks on page 22)")
+            print(f"test_get_by_page passed ({len(results)} chunks on page 22)")
     
     def test_get_chunk_by_id(self):
         """Test retrieving specific chunk by ID."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_get_chunk_by_id skipped (ChromaDB not installed)")
+            print("test_get_chunk_by_id skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -561,12 +561,12 @@ class TestVectorStoreWithChroma:
             missing = store.get_chunk_by_id("nonexistent_id")
             assert missing is None
             
-            print("✅ test_get_chunk_by_id passed")
+            print(" test_get_chunk_by_id passed")
     
     def test_get_stats(self):
         """Test statistics retrieval."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_get_stats skipped (ChromaDB not installed)")
+            print("test_get_stats skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -586,13 +586,13 @@ class TestVectorStoreWithChroma:
             assert stats["recommendation_chunks"] > 0
             assert len(stats["cancer_types"]) > 0
             
-            print("✅ test_get_stats passed")
+            print("test_get_stats passed")
             print(f"   Stats: {stats}")
     
     def test_clear_and_reset(self):
         """Test clearing and resetting collection."""
         if not CHROMADB_AVAILABLE:
-            print("⏭️ test_clear_and_reset skipped (ChromaDB not installed)")
+            print("test_clear_and_reset skipped (ChromaDB not installed)")
             return
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -620,7 +620,7 @@ class TestVectorStoreWithChroma:
             # After reset, collection is recreated empty
             assert store.get_stats()["total_chunks"] == 0
             
-            print("✅ test_clear_and_reset passed")
+            print(" test_clear_and_reset passed")
 
 
 class TestFactoryFunction:
@@ -631,7 +631,7 @@ class TestFactoryFunction:
         store = get_vector_store(mock=True)
         assert isinstance(store, MockVectorStore)
         
-        print("✅ test_get_mock_store passed")
+        print(" test_get_mock_store passed")
     
     def test_get_real_store(self):
         """Test getting real store (if ChromaDB available)."""
@@ -639,7 +639,7 @@ class TestFactoryFunction:
             # Should fall back to mock
             store = get_vector_store(mock=False)
             assert isinstance(store, MockVectorStore)
-            print("✅ test_get_real_store passed (fallback to mock)")
+            print("test_get_real_store passed (fallback to mock)")
         else:
             with tempfile.TemporaryDirectory() as tmpdir:
                 store = get_vector_store(
@@ -647,7 +647,7 @@ class TestFactoryFunction:
                     collection_name="test_factory"
                 )
                 assert isinstance(store, VectorStore)
-                print("✅ test_get_real_store passed (ChromaDB)")
+                print(" test_get_real_store passed (ChromaDB)")
 
 
 class TestRetrievalScenarios:
@@ -666,7 +666,7 @@ class TestRetrievalScenarios:
         
         results = store.search(query_emb, top_k=3)
         
-        print("✅ test_symptom_based_retrieval passed")
+        print("test_symptom_based_retrieval passed")
         print(f"   Query: '{query}'")
         for r in results:
             print(f"   - [{r.score:.4f}] {r.chunk_id}: {r.clinical.symptoms[:30]}...")
@@ -684,7 +684,7 @@ class TestRetrievalScenarios:
         # Get only urgent chunks
         results = store.search_urgent_only(query_emb, top_k=5)
         
-        print("✅ test_urgent_pathway_retrieval passed")
+        print(" test_urgent_pathway_retrieval passed")
         print(f"   Found {len(results)} urgent pathways:")
         for r in results:
             print(f"   - {r.get_citation()}: {r.get_urgency_display()}")
@@ -702,7 +702,7 @@ class TestRetrievalScenarios:
         
         results = store.search(query_emb, top_k=3, where={"investigations": {"$contains": "fit"}})
         
-        print("✅ test_investigation_lookup passed")
+        print(" test_investigation_lookup passed")
         print(f"   Found {len(results)} chunks mentioning FIT:")
         for r in results:
             print(f"   - {r.chunk_id}: {r.clinical.investigations}")
@@ -717,7 +717,7 @@ class TestRetrievalScenarios:
         query_emb = embedder.embed_query("breast cancer referral")
         results = store.search(query_emb, top_k=3)
         
-        print("✅ test_citation_generation passed")
+        print(" test_citation_generation passed")
         print("   Citations:")
         for r in results:
             citation = r.get_citation()
@@ -771,7 +771,7 @@ def run_all_tests():
                     skipped_tests += 1
                 else:
                     failed_tests.append((test_class.__name__, method_name, error_msg))
-                    print(f"❌ {method_name} FAILED: {e}")
+                    print(f" {method_name} FAILED: {e}")
     
     # Summary
     print("\n" + "=" * 70)
@@ -787,7 +787,7 @@ def run_all_tests():
         for class_name, method, error in failed_tests:
             print(f"  - {class_name}.{method}: {error}")
     else:
-        print("\n🎉 All tests passed!")
+        print("\n All tests passed!")
     
     return len(failed_tests) == 0
 

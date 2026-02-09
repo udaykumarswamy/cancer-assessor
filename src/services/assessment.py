@@ -7,7 +7,7 @@ Orchestrates the clinical risk assessment workflow:
 3. Risk assessment with LLM reasoning
 4. Recommendation generation with citations
 
-Interview Discussion Points:
+Why this architecture?:
 ---------------------------
 1. Assessment workflow:
    - Structured patient intake → symptom normalization
@@ -24,6 +24,7 @@ Interview Discussion Points:
    - Every recommendation must cite NG12
    - Enables verification and audit
    - Builds trust in AI recommendations
+   
 """
 
 from typing import List, Dict, Any, Optional
@@ -35,6 +36,11 @@ import json
 from src.config.logging_config import get_logger
 from src.services.retrieval import ClinicalRetriever, RetrievalContext
 from src.llm.gemini import GeminiLLM, ResponseFormat, LLMResponse
+from src.config.prompts import (
+    get_assessment_system_instruction,
+    get_assessment_extraction_prompt,
+    get_assessment_prompt
+)
 
 logger = get_logger("assessment")
 
@@ -205,22 +211,9 @@ class ClinicalAssessmentService:
         print(result.recommended_actions)
     """
     
-    SYSTEM_INSTRUCTION = """You are a clinical decision support assistant helping healthcare professionals 
-assess patients according to NICE NG12 guidelines for suspected cancer recognition and referral.
-
-Your role is to:
-1. Analyze patient symptoms and risk factors
-2. Match against NG12 criteria for cancer referral
-3. Provide evidence-based recommendations with specific citations
-4. Clearly indicate urgency levels
-
-Important guidelines:
-- Always cite specific NG12 sections for recommendations
-- Be clear about urgency (2-week pathway vs routine referral)
-- Note when information is insufficient for assessment
-- Flag any red flags or concerning symptom combinations
-- This is decision SUPPORT - final decisions are made by clinicians"""
-
+    # System instruction loaded dynamically from prompts.md
+    # See get_assessment_system_instruction() for loading
+    
     ASSESSMENT_SCHEMA = {
         "risk_level": "critical|high|moderate|low|insufficient_info",
         "urgency": "immediate|urgent_2_week|urgent|soon|routine|monitor",
@@ -333,17 +326,7 @@ Important guidelines:
         """
         logger.info("Extracting symptoms from free text")
         
-        extraction_prompt = f"""Extract clinical information from the following text.
-
-Text: {free_text}
-
-Extract:
-1. All symptoms mentioned
-2. Duration of symptoms if mentioned
-3. Any risk factors mentioned
-4. Any red flags
-
-Respond in JSON format."""
+        extraction_prompt = get_assessment_extraction_prompt(free_text)
 
         schema = {
             "symptoms": ["list of symptoms"],
@@ -400,27 +383,15 @@ Respond in JSON format."""
         """Generate assessment using LLM."""
         
         # Build prompt
-        prompt = f"""Assess this patient according to NG12 guidelines.
-
-## Patient Information:
-{patient.to_prompt_text()}
-
-## Relevant NG12 Guidelines:
-{context.get_context_text(max_chunks=self.top_k)}
-
-## Instructions:
-1. Identify which NG12 criteria apply to this patient
-2. Determine the appropriate urgency level
-3. Provide specific recommendations with citations
-4. Note any red flags or concerning features
-5. Indicate confidence in the assessment
-
-Provide your assessment as a JSON object."""
+        prompt = get_assessment_prompt(
+            patient_info=patient.to_prompt_text(),
+            guidelines_context=context.get_context_text(max_chunks=self.top_k)
+        )
 
         # Generate
         response = self.llm.generate(
             prompt=prompt,
-            system_instruction=self.SYSTEM_INSTRUCTION,
+            system_instruction=get_assessment_system_instruction(),
             response_format=ResponseFormat.JSON,
             json_schema=self.ASSESSMENT_SCHEMA,
             temperature=0.1,  # Low temperature for consistency

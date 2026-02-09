@@ -11,7 +11,7 @@ Key Features:
 - Section hierarchy for accurate citations
 - Content type classification
 
-Discussion Points:
+Why this architecture?:
 ---------------------------
 1. Why semantic chunking over fixed-size?
    - Clinical recommendations must not be split mid-sentence

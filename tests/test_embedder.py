@@ -586,7 +586,7 @@ def run_all_tests():
         for class_name, method, error in failed_tests:
             print(f"  - {class_name}.{method}: {error}")
     else:
-        print("\n🎉 All tests passed!")
+        print("\n All tests passed!")
     
     return len(failed_tests) == 0
 

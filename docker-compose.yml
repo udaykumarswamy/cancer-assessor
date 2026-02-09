@@ -1,0 +1,135 @@
+# Cancer Risk Assessment System - Docker Compose
+# ================================================
+#
+# USAGE:
+# ------
+# 1. DEVELOPMENT (with mock services - no GCP credentials needed):
+#    USE_MOCK=true docker-compose up
+#
+# 2. PRODUCTION (with real Vertex AI):
+#    Option A: Environment variable
+#      export GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp-key.json
+#      docker-compose up
+#
+#    Option B: Docker volume (uncomment volume mount below)
+#      docker-compose up
+#
+# FEATURES:
+# ---------
+# ✓ Pre-built Docker image with all trained models
+# ✓ 161 vector chunks ready to use
+# ✓ Mock mode for testing (no GCP account needed)
+# ✓ Real Vertex AI mode for production
+#
+# ================================================
+
+services:
+  cancer-assessor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cancer-assessor
+    ports:
+      - "8000:8000"      # FastAPI backend
+      - "5173:5173"      # Frontend dev (optional)
+    environment:
+      # Backend configuration
+      - PYTHONUNBUFFERED=1
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      
+      # Model and data paths (pre-loaded from Docker COPY)
+      - VECTORSTORE_DIR=/app/vectorstore
+      - DATA_DIR=/app/data
+      - CHROMA_COLLECTION_NAME=ng12_guidelines
+      
+      # Google Cloud / Vertex AI (configure if not using mock)
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-cancer-assessor-poc}
+      - GCP_LOCATION=${GCP_LOCATION:-us-central1}
+      - USE_MOCK=${USE_MOCK:-false}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Workers
+      - WORKERS=${WORKERS:-4}
+    
+    volumes:
+      # Mount for logs (optional)
+      - ./logs:/app/logs
+      
+      # Mount for persistent vector store updates (optional)
+      - ./vectorstore:/app/vectorstore
+      
+      # Mount for data updates (optional)
+      - ./data:/app/data
+      
+      # FOR GCP CREDENTIALS (optional - uncomment to use)
+      # Users can mount their own credentials file:
+      # - /path/to/their/gcp-key.json:/app/secrets/gcp-key.json:ro
+      # Then set env var: GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gcp-key.json
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    
+    networks:
+      - cancer-assessor-net
+
+  # Optional: Separate container for vector store initialization/updates
+  vector-store-init:
+    image: python:3.11-slim
+    container_name: vector-store-init
+    working_dir: /app
+    command: echo "Vector store initialized from Docker build context"
+    networks:
+      - cancer-assessor-net
+    profiles:
+      - init  # Run only when explicitly requested: docker-compose --profile init up
+
+networks:
+  cancer-assessor-net:
+    driver: bridge
+
+# Volume for persistent data
+volumes:
+  vectorstore-volume:
+    driver: local
+  
+  data-volume:
+    driver: local
+
+# Running the application:
+# ======================
+# 
+# Development (with mock services):
+#   USE_MOCK=true docker-compose up --build
+# 
+# Production (with Vertex AI):
+#   GCP_PROJECT_ID=your-project docker-compose up --build
+# 
+# With resource limits:
+#   docker-compose up --build
+# 
+# Logs:
+#   docker-compose logs -f cancer-assessor
+# 
+# Stop:
+#   docker-compose down
+# 
+# Clean rebuild:
+#   docker-compose down --volumes
+#   docker-compose up --build

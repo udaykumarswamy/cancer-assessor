@@ -4,11 +4,6 @@ Clinical Assessment Agent (ReAct-based)
 High-level agent for clinical risk assessment using ReAct pattern.
 Provides both single-shot and conversational interfaces.
 
-Key Fixes:
-- Uses LLM for robust patient info extraction (handles negations like "no smoking")
-- Properly preserves context across conversation turns
-- Can answer questions about current context
-- Better symptom recognition including fever, pain, etc.
 """
 
 from typing import List, Dict, Any, Optional, Generator
@@ -18,6 +13,11 @@ from datetime import datetime
 import uuid
 import json
 import re
+
+from src.config.prompts import (
+    get_clinical_assessment_extraction_prompt,
+    get_clinical_patient_extraction_prompt
+)
 
 from src.agents.react_agent import ReActAgent, StreamingReActAgent, AgentResult, AgentTrace
 from src.agents.tools import ClinicalTools
@@ -358,20 +358,7 @@ class ClinicalAgent:
         """Parse final answer into structured assessment."""
         from src.llm.gemini import ResponseFormat
         
-        extraction_prompt = f"""Extract structured clinical assessment from this text:
-
-{answer}
-
-Return JSON with:
-- risk_level: critical/high/moderate/low/insufficient_info
-- urgency: immediate/urgent_2_week/urgent/soon/routine
-- summary: brief summary (1-2 sentences)
-- recommended_actions: list of recommended actions
-- investigations: list of recommended tests/investigations
-- referral_pathway: specific referral pathway if mentioned
-- red_flags: list of red flags identified
-- citations: list of NG12 citations mentioned
-- confidence: 0.0-1.0 confidence score"""
+        extraction_prompt = get_clinical_assessment_extraction_prompt(answer)
 
         response = self.llm.generate(
             prompt=extraction_prompt,
@@ -698,33 +685,14 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         # Current patient info (to preserve)
         current = context.patient_info
         
-        prompt = f"""Extract patient information from this clinical conversation.
-
-CONVERSATION:
-{history_text}
-
-CURRENT KNOWN INFO:
-- Age: {current.age if current.age else "Unknown"}
-- Sex: {current.sex if current.sex else "Unknown"}
-- Symptoms: {current.symptoms if current.symptoms else "None recorded"}
-- Duration: {current.symptom_duration if current.symptom_duration else "Unknown"}
-- Risk factors: {current.risk_factors if current.risk_factors else "None recorded"}
-
-IMPORTANT:
-- Extract ALL symptoms mentioned (fever, cough, pain, etc.)
-- Handle NEGATIONS correctly: "no smoking history" means NO smoking risk factor
-- Preserve previously known information unless explicitly corrected
-- Duration can be like "5 days", "3 weeks", etc.
-
-Return JSON:
-{{
-    "age": <integer or null>,
-    "sex": "<male/female or null>",
-    "symptoms": ["list", "of", "symptoms"],
-    "symptom_duration": "<duration string or null>",
-    "risk_factors": ["list of ACTUAL risk factors, NOT things patient denies"],
-    "notes": "<any other relevant clinical notes>"
-}}"""
+        prompt = get_clinical_patient_extraction_prompt(
+            conversation_history=history_text,
+            age=str(current.age) if current.age else "Unknown",
+            sex=str(current.sex) if current.sex else "Unknown",
+            symptoms=", ".join(current.symptoms) if current.symptoms else "None recorded",
+            symptom_duration=str(current.symptom_duration) if current.symptom_duration else "Unknown",
+            risk_factors=", ".join(current.risk_factors) if current.risk_factors else "None recorded"
+        )
 
         try:
             response = self.llm.generate(

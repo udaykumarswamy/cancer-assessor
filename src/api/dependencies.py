@@ -4,22 +4,6 @@ API Dependencies
 Dependency injection for FastAPI routes.
 Manages singleton instances of services.
 
-Interview Discussion Points:
----------------------------
-1. Why dependency injection?
-   - Testability (can inject mocks)
-   - Resource management (singleton instances)
-   - Configuration flexibility
-
-2. Lazy initialization:
-   - Services created on first request
-   - Reduces startup time
-   - Fail-fast on first use
-
-3. Singleton pattern:
-   - Vector store loaded once
-   - Embedder initialized once
-   - Agent sessions managed centrally
 """
 
 from typing import Optional
