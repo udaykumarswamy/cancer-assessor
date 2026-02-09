@@ -2,7 +2,10 @@
 Clinical Assessment Agent (ReAct-based)
 
 High-level agent for clinical risk assessment using ReAct pattern.
-Provides both single-shot and conversational interfaces.
+Provides:
+- Single-shot assessment (assess, assess_quick)
+- Conversational assessment (start_session, chat)  → Assessment tab
+- Guideline Q&A (start_guideline_session, chat_guideline) → Chat tab
 
 """
 
@@ -16,7 +19,10 @@ import re
 
 from src.config.prompts import (
     get_clinical_assessment_extraction_prompt,
-    get_clinical_patient_extraction_prompt
+    get_clinical_patient_extraction_prompt,
+    # ── NEW: Guideline Q&A prompts ──
+    get_chat_guideline_prompt,
+    CHAT_GUIDELINE_SYSTEM_PROMPT,
 )
 
 from src.agents.react_agent import ReActAgent, StreamingReActAgent, AgentResult, AgentTrace
@@ -190,9 +196,9 @@ class ConversationContext:
     })
     
     # Context summarization and caching
-    _last_extraction_turn: int = 0  # Track when we last extracted info
-    _context_summary: str = ""  # Summarized conversation history
-    _max_history_before_summarize: int = 8  # Summarize after this many turns
+    _last_extraction_turn: int = 0
+    _context_summary: str = ""
+    _max_history_before_summarize: int = 8
     
     def add_turn(self, role: str, content: str, **metadata):
         self.history.append(ConversationTurn(
@@ -204,7 +210,6 @@ class ConversationContext:
     def get_history_text(self, max_turns: int = 10) -> str:
         """Get conversation history, using summary if available."""
         if self._context_summary and len(self.history) > self._max_history_before_summarize:
-            # Use summary + recent turns
             recent = self.history[-4:]
             recent_text = "\n\n".join(
                 f"{'User' if t.role == 'user' else 'Assistant'}: {t.content}"
@@ -212,7 +217,6 @@ class ConversationContext:
             )
             return f"[Previous conversation summary: {self._context_summary}]\n\nRecent conversation:\n{recent_text}"
         else:
-            # Full history
             recent = self.history[-max_turns:] if len(self.history) > max_turns else self.history
             lines = []
             for turn in recent:
@@ -221,16 +225,13 @@ class ConversationContext:
             return "\n\n".join(lines)
     
     def needs_extraction(self) -> bool:
-        """Check if we need to run LLM extraction (new user messages since last extraction)."""
         user_turns = sum(1 for t in self.history if t.role == "user")
         return user_turns > self._last_extraction_turn
     
     def mark_extraction_done(self):
-        """Mark that extraction has been performed."""
         self._last_extraction_turn = sum(1 for t in self.history if t.role == "user")
     
     def update_summary(self, summary: str):
-        """Update the context summary."""
         self._context_summary = summary
     
     def has_minimum_info(self) -> bool:
@@ -238,6 +239,56 @@ class ConversationContext:
     
     def get_missing_info(self) -> List[str]:
         return [k for k, v in self.info_gathered.items() if not v]
+
+
+# ══════════════════════════════════════════════════════════════
+# NEW: Guideline Q&A Session (for Chat tab)
+# ══════════════════════════════════════════════════════════════
+
+@dataclass
+class GuidelineChatTurn:
+    """A single turn in the guideline Q&A conversation."""
+    role: str  # "user" or "assistant"
+    content: str
+    citations: List[str] = field(default_factory=list)
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
+@dataclass
+class GuidelineChatSession:
+    """
+    Session for guideline Q&A mode (Chat tab).
+    
+    Completely separate from ConversationContext (Assessment tab).
+    No patient info gathering. No assessment state machine.
+    Just multi-turn Q&A over NG12 guidelines with citations.
+    """
+    session_id: str
+    history: List[GuidelineChatTurn] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def add_turn(self, role: str, content: str, citations: List[str] = None):
+        self.history.append(GuidelineChatTurn(
+            role=role,
+            content=content,
+            citations=citations or [],
+        ))
+    
+    def get_history_text(self, max_turns: int = 10) -> str:
+        """Get recent conversation history formatted for LLM context."""
+        recent = self.history[-max_turns:] if len(self.history) > max_turns else self.history
+        lines = []
+        for turn in recent:
+            role = "User" if turn.role == "user" else "Assistant"
+            lines.append(f"{role}: {turn.content}")
+        return "\n\n".join(lines)
+    
+    def get_last_citations(self) -> List[str]:
+        """Get citations from the most recent assistant turn."""
+        for turn in reversed(self.history):
+            if turn.role == "assistant" and turn.citations:
+                return turn.citations
+        return []
 
 
 # Alias for backward compatibility
@@ -248,11 +299,11 @@ class ClinicalAgent:
     """
     High-level clinical assessment agent using ReAct pattern.
     
-    Key features:
-    - LLM-based patient info extraction (handles complex cases)
-    - Proper context preservation across turns
-    - Can answer questions about current context
-    - Transparent reasoning traces
+    Two modes:
+    1. Assessment mode (Assessment tab): Patient info gathering → ReAct assessment
+       - start_session() / get_session() / chat()
+    2. Guideline Q&A mode (Chat tab): Direct question answering over NG12
+       - start_guideline_session() / get_guideline_session() / chat_guideline()
     """
     
     def __init__(
@@ -284,6 +335,11 @@ class ClinicalAgent:
         )
         
         self._sessions: Dict[str, ConversationContext] = {}
+        self._guideline_sessions: Dict[str, GuidelineChatSession] = {}
+    
+    # ==========================================
+    # Assessment Methods (unchanged)
+    # ==========================================
     
     def assess(self, patient: PatientInfo) -> ClinicalAssessment:
         """Perform clinical assessment."""
@@ -407,11 +463,11 @@ class ClinicalAgent:
         return self.tools.get_tools_schema()
     
     # ==========================================
-    # Conversation Management
+    # Assessment Conversation (Assessment tab)
     # ==========================================
     
     def start_session(self, session_id: Optional[str] = None) -> ConversationContext:
-        """Start a new conversation session."""
+        """Start a new ASSESSMENT conversation session."""
         session_id = session_id or str(uuid.uuid4())[:8]
         
         context = ConversationContext(session_id=session_id)
@@ -425,32 +481,31 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         context.add_turn("assistant", greeting)
         self._sessions[session_id] = context
         
-        logger.info(f"Started new session: {session_id}")
+        logger.info(f"Started new assessment session: {session_id}")
         return context
     
     def get_session(self, session_id: str) -> Optional[ConversationContext]:
-        """Get existing session by ID."""
+        """Get existing assessment session by ID."""
         return self._sessions.get(session_id)
     
     def chat(self, context: ConversationContext, user_message: str) -> str:
-        """Process a user message and generate response."""
-        logger.info(f"Chat in session {context.session_id}: {user_message[:50]}...")
+        """Process a user message in ASSESSMENT mode."""
+        logger.info(f"Assessment chat in session {context.session_id}: {user_message[:50]}...")
         
         # Add user message to history
         context.add_turn("user", user_message)
         
-        # 1. Check if this is a question about current context FIRST (uses cached data, no LLM)
+        # 1. Check if this is a question about current context
         if self._is_context_question(user_message):
             response = self._answer_context_question(user_message, context)
             context.add_turn("assistant", response)
             return response
         
-        # 2. Extract patient info ONLY if there's new user input since last extraction
+        # 2. Extract patient info if new input
         if context.needs_extraction():
             self._extract_patient_info_llm(context)
             context.mark_extraction_done()
             
-            # Summarize context if history is getting long
             if len(context.history) > context._max_history_before_summarize:
                 self._summarize_context(context)
         
@@ -459,27 +514,23 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         
         # 4. Decide response
         if explicit_assessment and self._has_sufficient_info(context):
-            # User requested assessment and we have enough info
             context.state = ConversationState.ASSESSING
             assessment = self.assess(context.patient_info)
             context.assessment_result = assessment
             context.state = ConversationState.COMPLETE
             response = self._format_assessment_response(assessment)
         elif explicit_assessment and not self._has_sufficient_info(context):
-            # User wants assessment but we need more info
             missing = context.get_missing_info()
             response = "I'd like to run the assessment, but I need a bit more information first:\n" + \
                       "\n".join(f"- {self._get_question_for_field(m)}" for m in missing[:2])
             context.state = ConversationState.GATHERING
         elif self._has_all_key_info(context):
-            # We have comprehensive info - offer to run assessment
             patient_summary = context.patient_info.to_summary()
             response = f"Thank you. I have the following information:\n\n**{patient_summary}**\n\n" + \
                       "Would you like me to run the NG12 cancer risk assessment now? " + \
                       "(Say 'yes' or 'assess' to proceed, or provide additional information)"
             context.state = ConversationState.CLARIFYING
         else:
-            # Still gathering - ask for missing info
             missing = context.get_missing_info()
             response = self._ask_for_missing_info(missing)
             context.state = ConversationState.GATHERING
@@ -487,11 +538,320 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         context.add_turn("assistant", response)
         return response
     
+    # ==========================================
+    # Guideline Q&A (Chat tab) — NEW
+    # ==========================================
+    
+    def start_guideline_session(self, session_id: Optional[str] = None) -> GuidelineChatSession:
+        """Start a new GUIDELINE Q&A session for the Chat tab."""
+        session_id = session_id or f"guide_{uuid.uuid4().hex[:8]}"
+        
+        session = GuidelineChatSession(session_id=session_id)
+        
+        greeting = (
+            "Hello! I can answer questions about the **NICE NG12 guidelines** "
+            "for suspected cancer recognition and referral.\n\n"
+            "You can ask me things like:\n"
+            "- \"What symptoms trigger an urgent referral for lung cancer?\"\n"
+            "- \"Does persistent hoarseness require urgent referral, and at what age?\"\n"
+            "- \"What does NG12 say about dyspepsia and thresholds for investigation?\"\n"
+            "- \"Summarize the referral criteria for visible haematuria.\"\n\n"
+            "What would you like to know?"
+        )
+        
+        session.add_turn("assistant", greeting)
+        self._guideline_sessions[session_id] = session
+        
+        logger.info(f"Started new guideline Q&A session: {session_id}")
+        return session
+    
+    def get_guideline_session(self, session_id: str) -> Optional[GuidelineChatSession]:
+        """Get existing guideline Q&A session by ID."""
+        return self._guideline_sessions.get(session_id)
+    
+    def chat_guideline(self, session: GuidelineChatSession, user_message: str) -> Dict[str, Any]:
+        """
+        Process a message in GUIDELINE Q&A mode (Chat tab).
+        
+        Flow:
+        1. Add user message to history
+        2. Check if user wants a patient assessment (redirect to Assessment tab)
+        3. Build search query (handle follow-up context)
+        4. Retrieve relevant NG12 chunks via ClinicalRetriever
+        5. Generate grounded response with citations via LLM
+        6. Return response + citations
+        
+        Returns dict with keys: message, citations
+        """
+        logger.info(f"Guideline chat [{session.session_id}]: {user_message[:80]}...")
+        
+        # Add user message to history
+        session.add_turn("user", user_message)
+        
+        # Check if user is trying to get a patient assessment
+        if self._is_patient_assessment_request(user_message):
+            response = (
+                "It sounds like you'd like to assess a specific patient. "
+                "For patient risk assessment, please use the **Assessment** tab — "
+                "it will guide you through entering patient details and run a full "
+                "NG12 risk evaluation with reasoning traces.\n\n"
+                "Here in the Chat, I can answer general questions about the NG12 guidelines. "
+                "For example:\n"
+                "- \"What are the referral criteria for lung cancer?\"\n"
+                "- \"What does NG12 say about haematuria?\"\n"
+                "- \"Which symptoms require a 2-week referral?\""
+            )
+            session.add_turn("assistant", response)
+            return {"message": response, "citations": []}
+        
+        # Build search query — incorporate conversation context for follow-ups
+        search_query = self._build_guideline_search_query(user_message, session)
+        logger.info(f"Guideline search query: {search_query}")
+        
+        # Retrieve relevant NG12 chunks
+        context_text, citations = self._retrieve_guideline_context(search_query)
+        
+        if not context_text:
+            response = (
+                "I couldn't find relevant information in the NG12 guidelines for that question. "
+                "Could you rephrase it, or ask about a specific cancer type or symptom?\n\n"
+                "NG12 covers recognition and referral criteria for suspected cancers including: "
+                "lung, colorectal, breast, prostate, skin, upper GI, lower GI, urological, "
+                "gynaecological, haematological, brain/CNS, bone, sarcoma, and others."
+            )
+            session.add_turn("assistant", response)
+            return {"message": response, "citations": []}
+        
+        # Get conversation history for follow-up context
+        history_text = session.get_history_text(max_turns=6)
+        
+        # Generate grounded response using LLM
+        prompt = get_chat_guideline_prompt(
+            question=user_message,
+            context=context_text,
+            history=history_text,
+        )
+        
+        try:
+            response_obj = self.llm.generate(
+                prompt=prompt,
+                system_instruction=CHAT_GUIDELINE_SYSTEM_PROMPT,
+                temperature=0.1,  # Low temperature for factual accuracy
+            )
+            
+            response_text = response_obj.text if hasattr(response_obj, 'text') else str(response_obj)
+        except Exception as e:
+            logger.error(f"LLM generation failed in guideline chat: {e}")
+            response_text = (
+                "I encountered an error generating a response. "
+                "Please try rephrasing your question."
+            )
+            citations = []
+        
+        # Store turn with citations
+        session.add_turn("assistant", response_text, citations=citations)
+        
+        logger.info(
+            f"Guideline response generated: {len(citations)} citations, "
+            f"{len(response_text)} chars"
+        )
+        
+        return {"message": response_text, "citations": citations}
+    
+    def _retrieve_guideline_context(self, query: str) -> tuple:
+        """
+        Retrieve relevant NG12 chunks and format them as context text + citations.
+        
+        Returns:
+            tuple: (context_text: str, citations: List[str])
+        
+        NOTE: Adjust this method if your ClinicalRetriever interface differs.
+        The method tries multiple common interfaces for compatibility.
+        """
+        try:
+            # ── Try the ClinicalRetriever.retrieve() interface ──
+            # This should return a RetrievalContext or similar object
+            retrieval_result = self.retriever.retrieve(
+                query=query,
+                top_k=5,
+            )
+            
+            # ── Extract context text and citations ──
+            # Adapt based on your retriever's return type:
+            
+            context_parts = []
+            citations = []
+            
+            # Option A: RetrievalContext object with .results list
+            if hasattr(retrieval_result, 'results'):
+                results = retrieval_result.results
+                if not results:
+                    return "", []
+                
+                for i, result in enumerate(results, 1):
+                    # Each result might have: text/content, metadata, score
+                    text = getattr(result, 'text', None) or getattr(result, 'content', None) or str(result)
+                    metadata = getattr(result, 'metadata', {}) or {}
+                    
+                    # Build citation from metadata
+                    section = metadata.get('section', 'Unknown section')
+                    page_start = metadata.get('page_start', metadata.get('page', '?'))
+                    chunk_id = metadata.get('chunk_id', getattr(result, 'id', ''))
+                    
+                    citation = f"NG12 {section}, p.{page_start}"
+                    citations.append(citation)
+                    
+                    context_parts.append(
+                        f"[Passage {i}] ({citation}):\n{text}"
+                    )
+            
+            # Option B: Returns a list of dicts directly
+            elif isinstance(retrieval_result, list):
+                if not retrieval_result:
+                    return "", []
+                
+                for i, item in enumerate(retrieval_result, 1):
+                    if isinstance(item, dict):
+                        text = item.get('text', item.get('content', item.get('document', str(item))))
+                        metadata = item.get('metadata', {})
+                    else:
+                        text = str(item)
+                        metadata = {}
+                    
+                    section = metadata.get('section', 'Unknown section')
+                    page = metadata.get('page_start', metadata.get('page', '?'))
+                    
+                    citation = f"NG12 {section}, p.{page}"
+                    citations.append(citation)
+                    
+                    context_parts.append(
+                        f"[Passage {i}] ({citation}):\n{text}"
+                    )
+            
+            # Option C: Object with get_context_text() helper
+            elif hasattr(retrieval_result, 'get_context_text'):
+                context_text = retrieval_result.get_context_text(max_chunks=5)
+                if hasattr(retrieval_result, 'get_citations'):
+                    citations = retrieval_result.get_citations()
+                return context_text, citations
+            
+            else:
+                logger.warning(f"Unknown retriever return type: {type(retrieval_result)}")
+                return "", []
+            
+            context_text = "\n\n".join(context_parts)
+            return context_text, citations
+            
+        except Exception as e:
+            logger.error(f"Retrieval failed in guideline chat: {e}")
+            return "", []
+    
+    def _is_patient_assessment_request(self, message: str) -> bool:
+        """
+        Detect if the user is trying to enter patient data for assessment
+        rather than asking a guideline question.
+        
+        Should redirect → Assessment tab:
+            "age 50, male, chronic cough for 30 days"
+            "my patient is 55 with hemoptysis"
+            "assess this patient: 62F with weight loss"
+        
+        Should NOT redirect (guideline questions):
+            "What symptoms trigger urgent referral for lung cancer?"
+            "What does NG12 say about haematuria?"
+            "At what age is hoarseness a concern?"
+        """
+        message_lower = message.lower()
+        
+        # Pattern: explicit patient data with demographics
+        has_age_value = bool(re.search(r'\bage\s*:?\s*\d+|\b\d+\s*(year|yr|yo)\b|\baged\s*\d+', message_lower))
+        has_sex_value = bool(re.search(r'\b(male|female)\b', message_lower))
+        has_my_patient = bool(re.search(r'\b(my patient|this patient|the patient is|patient presents|i have a patient)\b', message_lower))
+        has_assess_cmd = bool(re.search(r'\b(assess|evaluate|check risk|risk assessment)\b', message_lower))
+        
+        # Also detect the exact pattern from the screenshot: "age 50, male, having chronic cough for 30 days"
+        has_demographic_list = has_age_value and has_sex_value
+        
+        # Guideline question indicators (should NOT redirect)
+        guideline_question_words = [
+            "what does ng12", "what symptoms", "what are the criteria",
+            "what referral", "does ng12", "according to ng12",
+            "tell me about", "explain", "summarize the",
+            "what is the threshold", "what age", "at what age",
+            "which cancers", "which symptoms", "how is",
+            "when should", "what investigations",
+        ]
+        is_guideline_question = any(q in message_lower for q in guideline_question_words)
+        
+        # If it looks like a guideline question, don't redirect
+        if is_guideline_question:
+            return False
+        
+        # Redirect if: patient demographics provided together
+        if has_demographic_list:
+            return True
+        
+        # Redirect if: "my patient" + any specific data
+        if has_my_patient and (has_age_value or has_sex_value):
+            return True
+        
+        # Redirect if: explicit assess command + demographics
+        if has_assess_cmd and has_age_value:
+            return True
+        
+        return False
+    
+    def _build_guideline_search_query(self, user_message: str, session: GuidelineChatSession) -> str:
+        """
+        Build the retrieval query, incorporating conversation context for follow-ups.
+        
+        Examples:
+            Turn 1: "What are the referral criteria for lung cancer?"
+                → query: "What are the referral criteria for lung cancer?"
+            
+            Turn 2: "What about for patients under 40?"
+                → query: "referral criteria lung cancer patients under 40"
+                (incorporates "lung cancer" from prior context)
+            
+            Turn 3: "And for colorectal?"
+                → query: "referral criteria colorectal cancer"
+        """
+        message_lower = user_message.lower()
+        
+        # Follow-up indicators
+        follow_up_indicators = [
+            "what about", "and for", "how about", "what if",
+            "does that", "is that", "same for", "also",
+            "what else", "any other", "besides that",
+            "and what", "how does", "can you also",
+        ]
+        
+        is_follow_up = (
+            any(indicator in message_lower for indicator in follow_up_indicators)
+            or (len(user_message.split()) < 8 and not message_lower.startswith(("what", "which", "how", "when", "does", "is", "are", "can", "should")))
+        )
+        
+        if is_follow_up and len(session.history) >= 3:
+            # Find the last substantive user question for context
+            previous_user_messages = [
+                t.content for t in session.history
+                if t.role == "user"
+            ]
+            if len(previous_user_messages) >= 2:
+                prev_question = previous_user_messages[-2]  # -1 is current
+                # Combine for richer query
+                combined = f"{prev_question} {user_message}"
+                logger.info(f"Follow-up detected. Combined query: {combined[:100]}")
+                return combined
+        
+        return user_message
+    
+    # ==========================================
+    # Assessment Conversation Helpers (unchanged)
+    # ==========================================
+    
     def _summarize_context(self, context: ConversationContext):
         """Summarize conversation history to reduce token usage."""
-        from src.llm.gemini import ResponseFormat
-        
-        # Get current patient info as base
         patient = context.patient_info
         
         summary = f"Patient: {patient.age or '?'}yo {patient.sex or '?'}, "
@@ -505,14 +865,12 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         logger.info(f"Context summarized: {summary}")
     
     def _has_all_key_info(self, context: ConversationContext) -> bool:
-        """Check if we have all key information (age + symptoms)."""
         info = context.patient_info
         return (info.age is not None and 
                 len(info.symptoms) > 0 and 
                 info.symptom_duration is not None)
     
     def _get_question_for_field(self, field: str) -> str:
-        """Get question text for a missing field."""
         questions = {
             "age": "What is the patient's age?",
             "symptoms": "What symptoms is the patient experiencing?",
@@ -522,17 +880,14 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return questions.get(field, f"Can you provide the patient's {field}?")
     
     def _is_context_question(self, message: str) -> bool:
-        """Check if user is asking about current context."""
         message_lower = message.lower().strip()
         
-        # Must contain a question indicator
         question_words = ['what', 'how', 'tell', 'remind', 'summarize', 'summary', 'show', 'give']
         has_question_word = any(qw in message_lower for qw in question_words)
         
         if not has_question_word:
             return False
         
-        # Direct context questions
         context_patterns = [
             r"what (is|was|are|were) the (patient'?s? )?age",
             r"what'?s the age",
@@ -549,7 +904,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             r"what did i (say|tell)",
             r"remind me",
             r"show me (the )?(patient|info|details)",
-            # Findings and results
             r"what (is|are|was|were) the (key )?(finding|result|conclusion|outcome)",
             r"(key )?finding",
             r"what did (you|the assessment) (find|conclude|determine)",
@@ -557,7 +911,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             r"(show|tell) me (the )?(finding|result)",
         ]
         
-        import re
         for pattern in context_patterns:
             if re.search(pattern, message_lower):
                 return True
@@ -565,10 +918,8 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return False
     
     def _is_assessment_request(self, message: str) -> bool:
-        """Check if user explicitly wants to run assessment."""
         message_lower = message.lower().strip()
         
-        # Direct assessment keywords
         assessment_keywords = [
             "assess", "evaluate", "analyze", "analyse", "check risk",
             "what is the risk", "run assessment", "do assessment",
@@ -576,17 +927,14 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             "give assessment", "provide assessment", "start assessment",
         ]
         
-        # Affirmative responses (when we've asked if they want assessment)
         affirmative_keywords = [
             "yes", "yeah", "yep", "sure", "ok", "okay", "go ahead",
             "please", "proceed", "do it", "run it", "yes please",
         ]
         
-        # Check for assessment keywords
         if any(kw in message_lower for kw in assessment_keywords):
             return True
         
-        # Check for short affirmative response
         if len(message_lower.split()) <= 3:
             if any(kw in message_lower for kw in affirmative_keywords):
                 return True
@@ -594,11 +942,9 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return False
     
     def _answer_context_question(self, message: str, context: ConversationContext) -> str:
-        """Answer a question about the current context using cached data (no LLM call)."""
         patient = context.patient_info
         message_lower = message.lower()
         
-        # Specific questions - answer from cached data
         if "age" in message_lower:
             if patient.age:
                 return f"The patient's age is **{patient.age} years old**."
@@ -629,7 +975,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             else:
                 return "I don't have the patient's sex recorded yet."
         
-        # Questions about findings/results
         if any(kw in message_lower for kw in ["finding", "result", "assessment", "conclusion", "diagnosis"]):
             if context.assessment_result:
                 result = context.assessment_result
@@ -637,14 +982,12 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             else:
                 return "No assessment has been completed yet. Would you like me to run the assessment now? (Say 'yes' or 'assess')"
         
-        # General context question - return full summary
         summary = patient.to_summary()
         if summary == "No patient information gathered yet.":
             return "I don't have any patient information yet. Please tell me about the patient's symptoms, age, and any relevant history."
         
         response = f"**Current patient information:**\n\n{summary}"
         
-        # Add assessment result if available
         if context.assessment_result:
             result = context.assessment_result
             response += f"\n\n**Previous Assessment:**\n- Risk Level: {result.risk_level.value.upper()}\n- Urgency: {result.get_urgency_display()}"
@@ -653,7 +996,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return response
     
     def _format_key_findings(self, result: ClinicalAssessment) -> str:
-        """Format key findings from assessment in a readable way."""
         lines = [
             "**Key Findings from Assessment:**\n",
             f"📊 **Risk Level:** {result.risk_level.value.upper()}",
@@ -673,16 +1015,9 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return "\n".join(lines)
     
     def _extract_patient_info_llm(self, context: ConversationContext):
-        """
-        Use LLM to extract patient info from conversation.
-        This handles complex cases like negations ("no smoking history").
-        """
         from src.llm.gemini import ResponseFormat
         
-        # Get conversation history
         history_text = context.get_history_text(max_turns=10)
-        
-        # Current patient info (to preserve)
         current = context.patient_info
         
         prompt = get_clinical_patient_extraction_prompt(
@@ -703,7 +1038,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             
             data = response.parsed or {}
             
-            # Update patient info
             if data.get("age") is not None:
                 context.patient_info.age = data["age"]
                 context.info_gathered["age"] = True
@@ -712,7 +1046,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                 context.patient_info.sex = data["sex"]
             
             if data.get("symptoms"):
-                # Merge with existing symptoms
                 existing = set(context.patient_info.symptoms)
                 new_symptoms = set(data["symptoms"])
                 context.patient_info.symptoms = list(existing | new_symptoms)
@@ -724,11 +1057,9 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                 context.info_gathered["duration"] = True
             
             if data.get("risk_factors"):
-                # Replace risk factors (LLM handles negations)
                 context.patient_info.risk_factors = data["risk_factors"]
                 context.info_gathered["risk_factors"] = True
             elif "risk_factors" in data and data["risk_factors"] == []:
-                # Explicitly no risk factors
                 context.patient_info.risk_factors = []
                 context.info_gathered["risk_factors"] = True
             
@@ -737,18 +1068,14 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                 
         except Exception as e:
             logger.error(f"LLM extraction failed: {e}")
-            # Fall back to simple extraction
             self._extract_patient_info_simple(context)
     
     def _extract_patient_info_simple(self, context: ConversationContext):
-        """Simple regex-based extraction as fallback."""
-        # Get last few messages
         recent_messages = " ".join(
             turn.content for turn in context.history[-4:] 
             if turn.role == "user"
         ).lower()
         
-        # Age extraction
         age_patterns = [
             r'(?:age|aged)\s*(?:is|:)?\s*(\d{1,3})',
             r'(\d{1,3})\s*(?:year|yr|yo)',
@@ -766,7 +1093,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                 except:
                     pass
         
-        # Symptom extraction
         symptoms_map = {
             'cough': ['cough', 'coughing'],
             'fever': ['fever', 'febrile', 'temperature'],
@@ -784,18 +1110,15 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                     context.patient_info.symptoms.append(symptom)
                     context.info_gathered["symptoms"] = True
         
-        # Duration
         duration_match = re.search(r'(\d+)\s*(day|week|month|year)s?', recent_messages)
         if duration_match:
             context.patient_info.symptom_duration = duration_match.group(0)
             context.info_gathered["duration"] = True
     
     def _has_sufficient_info(self, context: ConversationContext) -> bool:
-        """Check if we have sufficient info for assessment."""
         return context.has_minimum_info()
     
     def _ask_for_missing_info(self, missing: List[str]) -> str:
-        """Ask for missing information."""
         prompts = {
             "age": "What is the patient's age?",
             "symptoms": "What symptoms is the patient experiencing?",
@@ -809,7 +1132,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                "\n".join(f"- {q}" for q in questions)
     
     def _format_assessment_response(self, assessment: ClinicalAssessment) -> str:
-        """Format assessment result as natural language response with readable reasoning."""
         lines = [
             "**Assessment Complete**\n",
             f"**Risk Level:** {assessment.risk_level.value.upper()}",
@@ -837,7 +1159,6 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
             for citation in assessment.citations[:3]:
                 lines.append(f"- {citation}")
         
-        # Add formatted reasoning trace if available
         if assessment.reasoning_trace and assessment.reasoning_trace.steps:
             lines.append("\n---")
             lines.append("\n**Clinical Reasoning:**")
@@ -848,15 +1169,12 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
         return "\n".join(lines)
     
     def _format_reasoning_trace(self, trace: AgentTrace) -> str:
-        """Format reasoning trace in human-readable format."""
         lines = []
         
         for i, step in enumerate(trace.steps, 1):
-            # Format thought
             thought_summary = step.thought[:150] + "..." if len(step.thought) > 150 else step.thought
             lines.append(f"\n**Step {i}:** {thought_summary}")
             
-            # Format action if present
             if step.action:
                 action_display = {
                     "search_guidelines": "🔍 Searched guidelines",
@@ -870,14 +1188,11 @@ Also helpful: age, sex, duration of symptoms, and any risk factors."""
                 
                 lines.append(f"   → {action_display}")
                 
-                # Summarize observation if present
                 if step.observation:
                     obs_preview = step.observation[:100] + "..." if len(step.observation) > 100 else step.observation
-                    # Clean up JSON formatting for readability
                     obs_preview = obs_preview.replace('{', '').replace('}', '').replace('"', '')
                     lines.append(f"   ✓ Found: {obs_preview}")
         
-        # Add final answer indicator
         if trace.final_answer:
             lines.append(f"\n**Conclusion reached after {len(trace.steps)} reasoning steps.**")
         

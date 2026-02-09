@@ -158,6 +158,11 @@ class ChatResponse(BaseModel):
         default_factory=dict,
         description="What information has been gathered"
     )
+    citations: Optional[List[str]] = Field(
+        default=None,
+        description="Citations supporting the response"
+    )
+    
     
     model_config = {
         "json_schema_extra": {
