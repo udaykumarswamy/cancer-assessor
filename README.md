@@ -23,11 +23,12 @@ A Clinical Decision Support System that combines structured patient data with NI
 6. [Evaluation Pipeline](#evaluation-pipeline)
 7. [Techniques and Algorithms](#techniques-and-algorithms)
 8. [Design Trade-offs](#design-trade-offs)
-9. [API Endpoints](#api-endpoints)
-10. [Project Structure](#project-structure)
-11. [Setup Guide](#setup-guide)
-12. [Usage Examples](#usage-examples)
-13. [UI images](#ui-images)
+9. [Improvemnets If Time Permits](#improvments-if-time-permits)
+10. [API Endpoints](#api-endpoints)
+11. [Project Structure](#project-structure)
+12. [Setup Guide](#setup-guide)
+13. [Usage Examples](#usage-examples)
+14. [UI images](#ui-images)
 
 ---
 
@@ -524,6 +525,44 @@ Every response is validated against retrieved evidence:
 | **Batch** | Higher | Binary done/wait | Simple |
 
 **Choice: Both supported** — batch via `/assess`, streaming via `/assess/stream` (Server-Sent Events showing each ReAct step in real time).
+
+
+## Improvments if time permits:
+
+- **Change in re-ranking stratergy (to avoid context rotting):**
+  - reference : https://ai.gopubby.com/the-rag-layer-nobody-talks-about-7580d2f59f6f
+
+- **Document Parsing:**
+  - i have used marker for complex table extraction, however this can be achived with some adjustments in dockling
+  - if time permits i will downgrade marker to dockling/surya, as marker is heavy used deep learning models under the hood
+  - after that i would add additional layer of validation's for section level and tables, using advanced vision models like gemini-flush (https://www.ocrarena.ai/battle) intresting work models dump.
+
+- **Proper chunking at table level:**
+  - semantic chunking fails at table level, as it tries to check the semantic meaning of text's in table
+  - possible solution is use existing meta data like prev and next chunks if table is in content
+
+- **Context Window Handeling:**
+  - proper seesion handeling per-user, now every time user comes back to chat the new session will be created
+  - we are keeping only last 10 messages, instead we can summerise the conversation after threshold(using less cost LLM)
+  - need to control the context window size as it may hit the TPM
+
+- **OutPut format fixing:**
+  - right now the text i displayed is not we structured, but this can be handled at UI side
+
+- **Conversational Memory Caching:**
+  - right now we are not saving FAQ and answers, this can achived using Redis with proper TTL
+
+- **Faithfullness Test:**
+  - right now i dont have labled data to validate ground truth, i tried to mock with llm, but in feature i would use original QnA, along with NLI models to validate the Faithfulness
+
+- **API controls:**
+  - Rate Limiters are not in place, i would optimise this to avoid unnessary load on API
+  - Load Balencing the api
+
+- **Security Checks:**
+  - I have implemented Basic gaurdrails before calling LLM, But this can be enhanced
+
+
 
 ---
 
