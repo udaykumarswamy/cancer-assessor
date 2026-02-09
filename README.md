@@ -554,6 +554,7 @@ Every response is validated against retrieved evidence:
 
 - **Faithfullness Test:**
   - right now i dont have labled data to validate ground truth, i tried to mock with llm, but in feature i would use original QnA, along with NLI models to validate the Faithfulness
+  - I would love to enhnace this evaluation using LLM as judege, refernce (https://www.evidentlyai.com/llm-guide/llm-as-a-judge)
 
 - **API controls:**
   - Rate Limiters are not in place, i would optimise this to avoid unnessary load on API
